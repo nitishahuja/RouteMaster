@@ -72,6 +72,9 @@ const DashboardPage = () => {
   const [activeSuggestionInput, setActiveSuggestionInput] = useState<
     "start" | "end" | number | null
   >(null);
+  const [activeInput, setActiveInput] = useState<
+    "start" | "end" | number | null
+  >(null);
   const [routeSummary, setRouteSummary] = useState<RouteSummaryData | null>(
     null
   );
@@ -104,18 +107,46 @@ const DashboardPage = () => {
         const { lng, lat } = e.lngLat;
         const address = await reverseGeocode(lat, lng);
 
-        // If no start location is set, set it as start
-        if (!startLocation.lat || !startLocation.lng) {
+        if (activeInput === "start") {
           setStartLocation({ address, lat, lng });
           setInputValues((prev) => ({ ...prev, start: address }));
+          map.current?.flyTo({
+            center: [lng, lat],
+            zoom: 13,
+          });
+        } else if (activeInput === "end") {
+          setEndLocation({ address, lat, lng });
+          setInputValues((prev) => ({ ...prev, end: address }));
+          map.current?.flyTo({
+            center: [lng, lat],
+            zoom: 13,
+          });
+        } else if (typeof activeInput === "number") {
+          const newStops = [...stops];
+          newStops[activeInput] = { address, lat, lng };
+          setStops(newStops);
+          setInputValues((prev) => ({
+            ...prev,
+            stops: prev.stops.map((stop, i) =>
+              i === activeInput ? address : stop
+            ),
+          }));
+          map.current?.flyTo({
+            center: [lng, lat],
+            zoom: 13,
+          });
         } else {
-          // Add as a new stop
+          // If no input is active, add as a new stop
           const newStop = { address, lat, lng };
           setStops((prev) => [...prev, newStop]);
           setInputValues((prev) => ({
             ...prev,
             stops: [...prev.stops, address],
           }));
+          map.current?.flyTo({
+            center: [lng, lat],
+            zoom: 13,
+          });
         }
       });
     }
@@ -125,7 +156,7 @@ const DashboardPage = () => {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [startLocation.lat, startLocation.lng]);
+  }, [startLocation.lat, startLocation.lng, activeInput, stops]);
 
   // Update markers with improved styling and information
   const updateMarkers = () => {
@@ -137,7 +168,7 @@ const DashboardPage = () => {
     markersRef.current = {};
 
     // Add start location marker with custom element
-    if (startLocation.lat && startLocation.lng) {
+    if (startLocation.lat && startLocation.lng && startLocation.address) {
       const startElement = document.createElement("div");
       startElement.className =
         "flex items-center justify-center w-8 h-8 rounded-full bg-red-500 border-2 border-white shadow-lg";
@@ -150,25 +181,58 @@ const DashboardPage = () => {
         .setLngLat([startLocation.lng, startLocation.lat])
         .setPopup(
           new mapboxgl.Popup({ offset: 25 }).setHTML(`
-              <div class="p-2">
-                <div class="font-bold text-red-600 mb-1">Start Point</div>
-                <div class="text-sm">${startLocation.address}</div>
-              </div>
-            `)
+            <div class="p-2">
+              <div class="font-bold text-red-600 mb-1">Start Point</div>
+              <div class="text-sm">${startLocation.address}</div>
+            </div>
+          `)
         )
         .addTo(currentMap);
       markersRef.current.start = startMarker;
     }
 
-    // Add stop markers with custom elements
+    // Add end location marker if exists
+    if (endLocation?.lat && endLocation?.lng && endLocation?.address) {
+      const endElement = document.createElement("div");
+      endElement.className =
+        "flex items-center justify-center w-8 h-8 rounded-full bg-green-500 border-2 border-white shadow-lg";
+      endElement.innerHTML = '<span class="text-white font-bold">E</span>';
+
+      const endMarker = new mapboxgl.Marker({
+        element: endElement,
+        anchor: "center",
+      })
+        .setLngLat([endLocation.lng, endLocation.lat])
+        .setPopup(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(`
+            <div class="p-2">
+              <div class="font-bold text-green-600 mb-1">End Point</div>
+              <div class="text-sm">${endLocation.address}</div>
+            </div>
+          `)
+        )
+        .addTo(currentMap);
+      markersRef.current.end = endMarker;
+    }
+
+    // Add stop markers with custom elements and enhanced popups
     stops.forEach((stop, index) => {
-      if (stop.lat && stop.lng) {
+      if (stop.lat && stop.lng && stop.address) {
         const stopElement = document.createElement("div");
         stopElement.className =
           "flex items-center justify-center w-8 h-8 rounded-full bg-blue-500 border-2 border-white shadow-lg";
         stopElement.innerHTML = `<span class="text-white font-bold">${
           index + 1
         }</span>`;
+
+        // Calculate distance and time from start
+        const distanceFromStart = calculateDistance(
+          startLocation.lat,
+          startLocation.lng,
+          stop.lat,
+          stop.lng
+        );
+        const timeFromStart = Math.round((distanceFromStart / 30) * 60); // Assuming 30 mph average speed
 
         const marker = new mapboxgl.Marker({
           element: stopElement,
@@ -177,13 +241,19 @@ const DashboardPage = () => {
           .setLngLat([stop.lng, stop.lat])
           .setPopup(
             new mapboxgl.Popup({ offset: 25 }).setHTML(`
-                <div class="p-2">
-                  <div class="font-bold text-blue-600 mb-1">Stop ${
-                    index + 1
-                  }</div>
-                  <div class="text-sm">${stop.address}</div>
+              <div class="p-2">
+                <div class="font-bold text-blue-600 mb-1">Stop ${
+                  index + 1
+                }</div>
+                <div class="text-sm mb-1">${stop.address}</div>
+                <div class="text-xs text-gray-600">
+                  <div>Distance from start: ${distanceFromStart.toFixed(
+                    1
+                  )} miles</div>
+                  <div>Est. time from start: ${timeFromStart} mins</div>
                 </div>
-              `)
+              </div>
+            `)
           )
           .addTo(currentMap);
         markersRef.current[`stop-${index}`] = marker;
@@ -191,10 +261,30 @@ const DashboardPage = () => {
     });
   };
 
+  // Add helper function to calculate distance between points
+  const calculateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number => {
+    const R = 3959; // Earth's radius in miles
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
   // Update markers whenever locations change
   useEffect(() => {
     updateMarkers();
-  }, [startLocation, stops]);
+  }, [startLocation, endLocation, stops]);
 
   // Add this new useEffect for autofocus
   useEffect(() => {
@@ -245,12 +335,14 @@ const DashboardPage = () => {
 
       if (type === "start") {
         setStartLocation({ address, lat, lng });
+        setInputValues((prev) => ({ ...prev, start: address }));
         map.current?.flyTo({
           center: [lng, lat],
           zoom: 13,
         });
       } else if (type === "end") {
         setEndLocation({ address, lat, lng });
+        setInputValues((prev) => ({ ...prev, end: address }));
         map.current?.flyTo({
           center: [lng, lat],
           zoom: 13,
@@ -259,6 +351,10 @@ const DashboardPage = () => {
         const newStops = [...stops];
         newStops[index] = { address, lat, lng };
         setStops(newStops);
+        setInputValues((prev) => ({
+          ...prev,
+          stops: prev.stops.map((stop, i) => (i === index ? address : stop)),
+        }));
       }
     } catch (error) {
       console.error("Error getting current location:", error);
@@ -465,6 +561,51 @@ const DashboardPage = () => {
     }
   };
 
+  // Add this helper function near the top of the component
+  const formatDuration = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = Math.round(minutes % 60);
+    return hours > 0
+      ? `${hours}h ${remainingMinutes}m`
+      : `${remainingMinutes}m`;
+  };
+
+  // Move styles to useEffect
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      .custom-popup .mapboxgl-popup-content {
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(75, 85, 99, 1);
+        padding: 0;
+        background-color: rgba(31, 41, 55, 0.95);
+        color: white;
+      }
+      .custom-popup .mapboxgl-popup-tip {
+        border-top-color: rgba(75, 85, 99, 1);
+      }
+      .custom-popup .mapboxgl-popup-close-button {
+        color: white;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  // Add this function to handle popup management
+  const closeAllPopups = () => {
+    Object.values(markersRef.current).forEach((marker) => {
+      const popup = marker.getPopup();
+      if (popup && popup.isOpen()) {
+        popup.remove();
+      }
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -532,30 +673,116 @@ const DashboardPage = () => {
         markersRef.current.start = startMarker;
         bounds.extend([startLocation.lng, startLocation.lat]);
 
+        // Add end marker if it exists
+        if (endLocation) {
+          const endElement = document.createElement("div");
+          endElement.className =
+            "flex items-center justify-center w-8 h-8 rounded-full bg-green-500 border-2 border-white shadow-lg";
+          endElement.innerHTML = '<span class="text-white font-bold">E</span>';
+
+          const endMarker = new mapboxgl.Marker({
+            element: endElement,
+            anchor: "center",
+          })
+            .setLngLat([endLocation.lng, endLocation.lat])
+            .setPopup(
+              new mapboxgl.Popup({ offset: 25 }).setHTML(`
+                <div class="p-2">
+                  <div class="font-bold text-green-600 mb-1">End Point</div>
+                  <div class="text-sm">${endLocation.address}</div>
+                </div>
+              `)
+            )
+            .addTo(currentMap);
+          markersRef.current.end = endMarker;
+          bounds.extend([endLocation.lng, endLocation.lat]);
+        }
+
         // Add numbered stop markers based on optimized sequence
+        let cumulativeTime = 0;
         optimizedRoute.order.slice(1, -1).forEach((index, i) => {
           const stop = validStops[index - 1];
           const stopElement = document.createElement("div");
           stopElement.className =
-            "flex items-center justify-center w-8 h-8 rounded-full bg-blue-500 border-2 border-white shadow-lg";
+            "flex items-center justify-center w-8 h-8 rounded-full bg-blue-500 border-2 border-white shadow-lg cursor-pointer hover:bg-blue-600 transition-colors";
           stopElement.innerHTML = `<span class="text-white font-bold">${
             i + 1
           }</span>`;
+
+          // Calculate time from previous stop
+          const segmentTime =
+            (route.duration / optimizedRoute.order.length) * (i + 1);
+          cumulativeTime = segmentTime;
+
+          // Create popup
+          const popup = new mapboxgl.Popup({
+            closeButton: true,
+            closeOnClick: false,
+            offset: 25,
+            className: "custom-popup",
+          }).setHTML(`
+            <div class="p-3 min-w-[200px]">
+              <div class="font-bold text-blue-400 mb-2 text-lg">Stop ${
+                i + 1
+              }</div>
+              <div class="text-gray-200 mb-2">${stop.address}</div>
+              <div class="space-y-1">
+                <div class="flex items-center text-sm text-gray-300">
+                  <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Time from start: ${formatDuration(
+                    cumulativeTime / 60
+                  )}</span>
+                </div>
+                <div class="flex items-center text-sm text-gray-300">
+                  <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                  <span>Distance: ${(
+                    ((route.distance * 0.000621371) /
+                      optimizedRoute.order.length) *
+                    (i + 1)
+                  ).toFixed(1)} miles</span>
+                </div>
+              </div>
+            </div>
+          `);
 
           const marker = new mapboxgl.Marker({
             element: stopElement,
             anchor: "center",
           })
             .setLngLat([stop.lng, stop.lat])
-            .setPopup(
-              new mapboxgl.Popup({ offset: 25 }).setHTML(`
-                <div class="p-2">
-                  <div class="font-bold text-blue-600 mb-1">Stop ${i + 1}</div>
-                  <div class="text-sm">${stop.address}</div>
-                </div>
-              `)
-            )
             .addTo(currentMap);
+
+          // Add hover events with improved behavior
+          stopElement.addEventListener("mouseenter", () => {
+            closeAllPopups(); // Close any open popups
+            popup.addTo(currentMap);
+            marker.setPopup(popup);
+          });
+
+          stopElement.addEventListener("mouseleave", () => {
+            // Add a small delay to check if the cursor moved to the popup
+            setTimeout(() => {
+              const popupElement = document.querySelector(".mapboxgl-popup");
+              if (popupElement && !popupElement.matches(":hover")) {
+                popup.remove();
+              }
+            }, 100);
+          });
+
+          // Add event listener to popup element for hover
+          popup.on("open", () => {
+            const popupElement = document.querySelector(".mapboxgl-popup");
+            if (popupElement) {
+              popupElement.addEventListener("mouseleave", () => {
+                popup.remove();
+              });
+            }
+          });
+
           markersRef.current[`stop-${i}`] = marker;
           bounds.extend([stop.lng, stop.lat]);
         });
@@ -577,7 +804,7 @@ const DashboardPage = () => {
               order: i + 1,
             })),
             {
-              address: startLocation.address,
+              address: endLocation?.address || startLocation.address,
               order: optimizedRoute.order.length - 1,
             },
           ],
@@ -589,6 +816,26 @@ const DashboardPage = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Add focus handlers to inputs
+  const handleInputFocus = (type: "start" | "end" | number) => {
+    setActiveInput(type);
+  };
+
+  const handleInputBlur = () => {
+    // Use a small delay to allow click events to register
+    setTimeout(() => {
+      const isClickingMap = document.activeElement?.closest(
+        ".mapboxgl-canvas-container, .mapboxgl-popup"
+      );
+      const isClickingInput = document.activeElement?.closest(
+        ".location-input-container"
+      );
+      if (!isClickingMap && !isClickingInput) {
+        setActiveInput(null);
+      }
+    }, 100);
   };
 
   return (
@@ -618,6 +865,8 @@ const DashboardPage = () => {
                   value={inputValues.start}
                   onChange={handleStartLocationChange}
                   onKeyDown={(e) => handleKeyDown(e, true)}
+                  onFocus={() => handleInputFocus("start")}
+                  onBlur={handleInputBlur}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   placeholder="Enter start address"
                   required
@@ -667,6 +916,8 @@ const DashboardPage = () => {
                   value={inputValues.end}
                   onChange={handleEndLocationChange}
                   onKeyDown={(e) => handleKeyDown(e, false)}
+                  onFocus={() => handleInputFocus("end")}
+                  onBlur={handleInputBlur}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   placeholder="Enter end location (optional)"
                 />
@@ -719,6 +970,8 @@ const DashboardPage = () => {
                     value={inputValues.stops[index]}
                     onChange={(e) => handleStopChange(index, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(e, false, index)}
+                    onFocus={() => handleInputFocus(index)}
+                    onBlur={handleInputBlur}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                     placeholder={`Stop ${index + 1}`}
                     required
@@ -783,18 +1036,10 @@ const DashboardPage = () => {
             {isLoading ? "Optimizing..." : "Optimize Route"}
           </button>
         </form>
-      </div>
 
-      {/* Right panel */}
-      <div className="w-full md:w-2/3 p-4 flex flex-col h-screen">
-        <div className="flex-grow bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg mb-4">
-          <div
-            ref={mapContainer}
-            className="w-full h-full rounded-lg overflow-hidden"
-          />
-        </div>
+        {/* Move RouteSummary to the left panel */}
         {routeSummary && (
-          <div className="flex-shrink-0">
+          <div className="mt-6">
             <RouteSummary
               distance={routeSummary.distance}
               duration={routeSummary.duration}
@@ -802,6 +1047,16 @@ const DashboardPage = () => {
             />
           </div>
         )}
+      </div>
+
+      {/* Right panel - Map only */}
+      <div className="w-full md:w-2/3 p-4 h-screen">
+        <div className="w-full h-full bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+          <div
+            ref={mapContainer}
+            className="w-full h-full rounded-lg overflow-hidden"
+          />
+        </div>
       </div>
     </div>
   );

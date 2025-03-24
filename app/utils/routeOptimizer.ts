@@ -45,12 +45,12 @@ export async function getRouteDirections(
 ): Promise<MapboxDirectionsResponse> {
   const coordinatesStr = coordinates.map((coord) => coord.join(",")).join(";");
   const response = await fetch(
-    `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinatesStr}?geometries=geojson&overview=full&annotations=distance,duration&access_token=${mapboxgl.accessToken}`
+    `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coordinatesStr}?geometries=geojson&overview=full&annotations=distance,duration,speed,congestion&access_token=${mapboxgl.accessToken}`
   );
   return response.json();
 }
 
-// Optimize route using nearest neighbor with 2-opt improvement
+// Optimize route using nearest neighbor with 2-opt improvement and traffic consideration
 export function optimizeRoute(
   startLocation: Location,
   stops: Location[],
@@ -62,34 +62,59 @@ export function optimizeRoute(
     : [startLocation, ...stops, startLocation];
   const n = allPoints.length;
 
-  // Create distance matrix
+  // Create distance and time matrices
   const distanceMatrix: number[][] = Array(n)
     .fill(0)
     .map(() => Array(n).fill(0));
+  const timeMatrix: number[][] = Array(n)
+    .fill(0)
+    .map(() => Array(n).fill(0));
 
-  // Fill distance matrix
+  // Fill distance and time matrices
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (i !== j) {
-        distanceMatrix[i][j] = calculateDistance(allPoints[i], allPoints[j]);
+        const distance = calculateDistance(allPoints[i], allPoints[j]);
+        distanceMatrix[i][j] = distance;
+
+        // Estimate time with traffic factor
+        // Base speed of 30 mph, adjusted by time of day and typical congestion
+        const hour = new Date().getHours();
+        let trafficFactor = 1;
+
+        // Rush hour adjustment (7-10 AM and 4-7 PM)
+        if ((hour >= 7 && hour <= 10) || (hour >= 16 && hour <= 19)) {
+          trafficFactor = 1.5; // 50% slower during rush hour
+        }
+        // Night time adjustment (10 PM - 5 AM)
+        else if (hour >= 22 || hour <= 5) {
+          trafficFactor = 0.8; // 20% faster during night
+        }
+
+        // Calculate estimated time in minutes
+        timeMatrix[i][j] = (distance / 30) * 60 * trafficFactor;
       }
     }
   }
 
-  // Nearest neighbor algorithm with fixed start and end points
+  // Nearest neighbor algorithm with traffic consideration
   function findNearestNeighborRoute(): number[] {
-    const route: number[] = [0]; // Start with the first point (start location)
-    const unvisited = new Set(Array.from({ length: n - 2 }, (_, i) => i + 1)); // Exclude start and end points
+    const route: number[] = [0]; // Start with the first point
+    const unvisited = new Set(Array.from({ length: n - 2 }, (_, i) => i + 1));
 
     while (unvisited.size > 0) {
       const current = route[route.length - 1];
       let nearest = -1;
-      let minDistance = Infinity;
+      let minScore = Infinity;
 
       for (const next of unvisited) {
-        const distance = distanceMatrix[current][next];
-        if (distance < minDistance) {
-          minDistance = distance;
+        // Combined score of distance and time (weighted)
+        const distanceScore = distanceMatrix[current][next];
+        const timeScore = timeMatrix[current][next];
+        const combinedScore = distanceScore * 0.3 + timeScore * 0.7; // Weight time more heavily than distance
+
+        if (combinedScore < minScore) {
+          minScore = combinedScore;
           nearest = next;
         }
       }
@@ -102,21 +127,21 @@ export function optimizeRoute(
     return route;
   }
 
-  // 2-opt improvement
+  // 2-opt improvement considering both distance and time
   function improve2Opt(route: number[]): number[] {
     let improved = true;
-    let bestDistance = calculateRouteDistance(route);
+    let bestScore = calculateRouteScore(route);
 
     while (improved) {
       improved = false;
       for (let i = 1; i < route.length - 2; i++) {
         for (let j = i + 1; j < route.length - 1; j++) {
           const newRoute = twoOptSwap(route, i, j);
-          const newDistance = calculateRouteDistance(newRoute);
+          const newScore = calculateRouteScore(newRoute);
 
-          if (newDistance < bestDistance) {
+          if (newScore < bestScore) {
             route = newRoute;
-            bestDistance = newDistance;
+            bestScore = newScore;
             improved = true;
           }
         }
@@ -125,13 +150,15 @@ export function optimizeRoute(
     return route;
   }
 
-  // Calculate total route distance
-  function calculateRouteDistance(route: number[]): number {
+  // Calculate combined route score (distance and time)
+  function calculateRouteScore(route: number[]): number {
     let distance = 0;
+    let time = 0;
     for (let i = 0; i < route.length - 1; i++) {
       distance += distanceMatrix[route[i]][route[i + 1]];
+      time += timeMatrix[route[i]][route[i + 1]];
     }
-    return distance;
+    return distance * 0.3 + time * 0.7; // Weight time more heavily than distance
   }
 
   // Get initial route using nearest neighbor
@@ -141,7 +168,10 @@ export function optimizeRoute(
   bestRoute = improve2Opt(bestRoute);
 
   // Calculate final distance
-  const finalDistance = calculateRouteDistance(bestRoute);
+  const finalDistance = bestRoute.reduce((total, current, i) => {
+    if (i === 0) return 0;
+    return total + distanceMatrix[bestRoute[i - 1]][current];
+  }, 0);
 
   return {
     coordinates: bestRoute.map((i) => [allPoints[i].lng, allPoints[i].lat]),
