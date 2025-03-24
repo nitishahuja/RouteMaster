@@ -67,6 +67,7 @@ const DashboardPage = () => {
       });
 
       // Add navigation controls
+
       map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
 
       // Add geolocate control
