@@ -838,157 +838,94 @@ const DashboardPage = () => {
     }, 100);
   };
 
+  // Add this helper function to generate Google Maps URL
+  const generateGoogleMapsUrl = () => {
+    if (!routeSummary) return "";
+
+    // Start with the base URL
+    let url = "https://www.google.com/maps/dir/?api=1";
+
+    // Add origin (start location)
+    url += `&origin=${encodeURIComponent(startLocation.address)}`;
+
+    // Add destination (end location or back to start)
+    const destination = endLocation
+      ? endLocation.address
+      : startLocation.address;
+    url += `&destination=${encodeURIComponent(destination)}`;
+
+    // Add waypoints (stops)
+    if (stops.length > 0) {
+      const validStops = stops.filter((stop) => stop.address.trim() !== "");
+      if (validStops.length > 0) {
+        const waypointsString = validStops
+          .map((stop) => encodeURIComponent(stop.address))
+          .join("|");
+        url += `&waypoints=${waypointsString}`;
+      }
+    }
+
+    // Add travel mode
+    url += "&travelmode=driving";
+
+    return url;
+  };
+
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-gray-100 dark:bg-gray-900">
-      {/* Left panel */}
-      <div className="w-full md:w-1/3 p-4 overflow-y-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Route Planning Dashboard
-          </h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Optimize your delivery routes with real-time mapping
-          </p>
-        </div>
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
+      {/* Mobile Header */}
+      <div className="md:hidden p-4 bg-white dark:bg-gray-800 shadow-sm">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          Route Planning
+        </h1>
+      </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Start location input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Start Location
-            </label>
-            <div className="mt-1 flex gap-2">
-              <div className="location-input-container relative flex-1">
-                <input
-                  ref={startInputRef}
-                  type="text"
-                  value={inputValues.start}
-                  onChange={handleStartLocationChange}
-                  onKeyDown={(e) => handleKeyDown(e, true)}
-                  onFocus={() => handleInputFocus("start")}
-                  onBlur={handleInputBlur}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="Enter start address"
-                  required
-                />
-                {suggestions.length > 0 &&
-                  activeSuggestionInput === "start" && (
-                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200 dark:border-gray-700">
-                      {suggestions.map((suggestion, index) => (
-                        <div
-                          key={suggestion.place_name}
-                          className={`px-4 py-2 cursor-pointer text-sm text-gray-800 dark:text-gray-200 ${
-                            index === activeSuggestionIndex
-                              ? "bg-blue-100 dark:bg-blue-900"
-                              : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                          }`}
-                          onClick={() =>
-                            handleSuggestionClick(suggestion, true)
-                          }
-                        >
-                          {suggestion.place_name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleUseCurrentLocation("start")}
-                disabled={isGettingLocation}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors flex-shrink-0"
-                title="Use current location"
-              >
-                📍
-              </button>
-            </div>
+      {/* Main Content */}
+      <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)] md:h-screen relative">
+        {/* Left panel - Form */}
+        <div className="w-full md:w-1/3 p-4 bg-white dark:bg-gray-800 md:bg-transparent md:dark:bg-transparent overflow-y-auto order-2 md:order-1 z-10">
+          <div className="hidden md:block mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Route Planning Dashboard
+            </h1>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              Optimize your delivery routes with real-time mapping
+            </p>
           </div>
 
-          {/* End location input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              End Location (Optional)
-            </label>
-            <div className="mt-1 flex gap-2">
-              <div className="location-input-container relative flex-1">
-                <input
-                  type="text"
-                  value={inputValues.end}
-                  onChange={handleEndLocationChange}
-                  onKeyDown={(e) => handleKeyDown(e, false)}
-                  onFocus={() => handleInputFocus("end")}
-                  onBlur={handleInputBlur}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="Enter end location (optional)"
-                />
-                {suggestions.length > 0 && activeSuggestionInput === "end" && (
-                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-auto">
-                    {suggestions.map((suggestion, index) => (
-                      <div
-                        key={index}
-                        className={`px-4 py-2 cursor-pointer ${
-                          index === activeSuggestionIndex
-                            ? "bg-blue-100 dark:bg-blue-900"
-                            : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                        }`}
-                        onClick={() =>
-                          handleSuggestionClick(
-                            suggestion,
-                            false,
-                            undefined,
-                            true
-                          )
-                        }
-                      >
-                        {suggestion.place_name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleUseCurrentLocation("end")}
-                disabled={isGettingLocation}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors flex-shrink-0"
-                title="Use current location"
-              >
-                📍
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Delivery Stops
-            </label>
-            {stops.map((stop, index) => (
-              <div key={index} className="flex gap-2">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Start location input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Start Location
+              </label>
+              <div className="mt-1 flex gap-2">
                 <div className="location-input-container relative flex-1">
                   <input
+                    ref={startInputRef}
                     type="text"
-                    value={inputValues.stops[index]}
-                    onChange={(e) => handleStopChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(e, false, index)}
-                    onFocus={() => handleInputFocus(index)}
+                    value={inputValues.start}
+                    onChange={handleStartLocationChange}
+                    onKeyDown={(e) => handleKeyDown(e, true)}
+                    onFocus={() => handleInputFocus("start")}
                     onBlur={handleInputBlur}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                    placeholder={`Stop ${index + 1}`}
+                    placeholder="Enter start address"
                     required
                   />
                   {suggestions.length > 0 &&
-                    activeSuggestionInput === index && (
+                    activeSuggestionInput === "start" && (
                       <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200 dark:border-gray-700">
-                        {suggestions.map((suggestion, suggestionIndex) => (
+                        {suggestions.map((suggestion, index) => (
                           <div
                             key={suggestion.place_name}
                             className={`px-4 py-2 cursor-pointer text-sm text-gray-800 dark:text-gray-200 ${
-                              suggestionIndex === activeSuggestionIndex
+                              index === activeSuggestionIndex
                                 ? "bg-blue-100 dark:bg-blue-900"
                                 : "hover:bg-gray-100 dark:hover:bg-gray-700"
                             }`}
                             onClick={() =>
-                              handleSuggestionClick(suggestion, false, index)
+                              handleSuggestionClick(suggestion, true)
                             }
                           >
                             {suggestion.place_name}
@@ -999,64 +936,219 @@ const DashboardPage = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleUseCurrentLocation("stop", index)}
+                  onClick={() => handleUseCurrentLocation("start")}
                   disabled={isGettingLocation}
                   className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors flex-shrink-0"
                   title="Use current location"
                 >
                   📍
                 </button>
-                {stops.length > 1 && (
+              </div>
+            </div>
+
+            {/* End location input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                End Location (Optional)
+              </label>
+              <div className="mt-1 flex gap-2">
+                <div className="location-input-container relative flex-1">
+                  <input
+                    type="text"
+                    value={inputValues.end}
+                    onChange={handleEndLocationChange}
+                    onKeyDown={(e) => handleKeyDown(e, false)}
+                    onFocus={() => handleInputFocus("end")}
+                    onBlur={handleInputBlur}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="Enter end location (optional)"
+                  />
+                  {suggestions.length > 0 &&
+                    activeSuggestionInput === "end" && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-auto">
+                        {suggestions.map((suggestion, index) => (
+                          <div
+                            key={index}
+                            className={`px-4 py-2 cursor-pointer ${
+                              index === activeSuggestionIndex
+                                ? "bg-blue-100 dark:bg-blue-900"
+                                : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                            }`}
+                            onClick={() =>
+                              handleSuggestionClick(
+                                suggestion,
+                                false,
+                                undefined,
+                                true
+                              )
+                            }
+                          >
+                            {suggestion.place_name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUseCurrentLocation("end")}
+                  disabled={isGettingLocation}
+                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors flex-shrink-0"
+                  title="Use current location"
+                >
+                  📍
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Delivery Stops
+              </label>
+              {stops.map((stop, index) => (
+                <div key={index} className="flex gap-2">
+                  <div className="location-input-container relative flex-1">
+                    <input
+                      type="text"
+                      value={inputValues.stops[index]}
+                      onChange={(e) => handleStopChange(index, e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(e, false, index)}
+                      onFocus={() => handleInputFocus(index)}
+                      onBlur={handleInputBlur}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                      placeholder={`Stop ${index + 1}`}
+                      required
+                    />
+                    {suggestions.length > 0 &&
+                      activeSuggestionInput === index && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200 dark:border-gray-700">
+                          {suggestions.map((suggestion, suggestionIndex) => (
+                            <div
+                              key={suggestion.place_name}
+                              className={`px-4 py-2 cursor-pointer text-sm text-gray-800 dark:text-gray-200 ${
+                                suggestionIndex === activeSuggestionIndex
+                                  ? "bg-blue-100 dark:bg-blue-900"
+                                  : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                              }`}
+                              onClick={() =>
+                                handleSuggestionClick(suggestion, false, index)
+                              }
+                            >
+                              {suggestion.place_name}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                  </div>
                   <button
                     type="button"
-                    onClick={() => handleRemoveStop(index)}
-                    className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
-                    aria-label="Remove stop"
+                    onClick={() => handleUseCurrentLocation("stop", index)}
+                    disabled={isGettingLocation}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md transition-colors flex-shrink-0"
+                    title="Use current location"
                   >
-                    ×
+                    📍
                   </button>
-                )}
-              </div>
-            ))}
-          </div>
+                  {stops.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStop(index)}
+                      className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
+                      aria-label="Remove stop"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
 
-          <button
-            type="button"
-            onClick={handleAddStop}
-            className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 border border-blue-600 dark:border-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/50 transition-colors"
-          >
-            + Add Another Stop
-          </button>
+            <button
+              type="button"
+              onClick={handleAddStop}
+              className="w-full px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 border border-blue-600 dark:border-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/50 transition-colors"
+            >
+              + Add Another Stop
+            </button>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? "Optimizing..." : "Optimize Route"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? "Optimizing..." : "Optimize Route"}
+            </button>
+          </form>
 
-        {/* Move RouteSummary to the left panel */}
-        {routeSummary && (
-          <div className="mt-6">
-            <RouteSummary
-              distance={routeSummary.distance}
-              duration={routeSummary.duration}
-              stops={routeSummary.stops}
+          {routeSummary && (
+            <div className="mt-6 space-y-4">
+              <RouteSummary
+                distance={routeSummary.distance}
+                duration={routeSummary.duration}
+                stops={routeSummary.stops}
+              />
+              <a
+                href={generateGoogleMapsUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors text-center"
+              >
+                <div className="flex items-center justify-center space-x-2">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 5.293L14 1.586v12.828l2.293 2.293A1 1 0 0018 16V6a1 1 0 00-.293-.707z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <span>Open in Google Maps</span>
+                </div>
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Right panel - Map */}
+        <div className="w-full md:w-2/3 h-[50vh] md:h-full order-1 md:order-2">
+          <div className="w-full h-full bg-white dark:bg-gray-800 md:p-6 md:rounded-xl md:shadow-lg">
+            <div
+              ref={mapContainer}
+              className="w-full h-full md:rounded-lg overflow-hidden"
             />
           </div>
-        )}
-      </div>
-
-      {/* Right panel - Map only */}
-      <div className="w-full md:w-2/3 p-4 h-screen">
-        <div className="w-full h-full bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
-          <div
-            ref={mapContainer}
-            className="w-full h-full rounded-lg overflow-hidden"
-          />
         </div>
+
+        {/* Mobile Toggle Button */}
+        <button
+          onClick={() => {
+            const formPanel = document.querySelector(".order-2");
+            if (formPanel) {
+              formPanel.classList.toggle("translate-y-full");
+              formPanel.classList.toggle("hidden");
+            }
+          }}
+          className="fixed bottom-4 right-4 md:hidden z-20 bg-blue-600 text-white p-3 rounded-full shadow-lg"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </button>
       </div>
     </div>
   );
